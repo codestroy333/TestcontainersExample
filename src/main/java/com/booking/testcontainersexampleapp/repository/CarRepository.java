@@ -7,10 +7,7 @@ import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -55,6 +52,100 @@ public class CarRepository {
             throw new RuntimeException("Error finding car by id: " + id, e);
         }
         return Optional.empty();
+    }
+
+    public Car save(Car car) {
+        if (car.getId() == null) {
+            String sql = "INSERT INTO car (name) VALUES (?)";
+
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement preparedStatement = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                preparedStatement.setString(1, car.getName());
+                preparedStatement.executeUpdate();
+                try (ResultSet rs = preparedStatement.getGeneratedKeys()) {
+                    if (rs.next()) {
+                        car.setId(rs.getLong(1));
+                    }
+                }
+
+            } catch (SQLException e) {
+                throw new RuntimeException("Error saving car: " + car, e);
+            }
+        } else {
+            String sql = "INSERT INTO car (id, name) VALUES (?, ?) " +
+                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name";
+
+            try (Connection conn = dataSource.getConnection();
+            PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+                preparedStatement.setLong(1, car.getId());
+                preparedStatement.setString(2, car.getName());
+                preparedStatement.executeUpdate();
+            } catch (SQLException e) {
+                throw new RuntimeException("Error updating car: " + car, e);
+            }
+        }
+        return car;
+    }
+
+    public boolean existsById(Long id) {
+        String sql = "SELECT 1 FROM car WHERE id = ? LIMIT 1";
+
+        try (Connection conn = dataSource.getConnection();
+        PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+            preparedStatement.setLong(1, id);
+            try (ResultSet rs = preparedStatement.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Car does not exist: " + id, e);
+        }
+    }
+
+    public void deleteById(Long id) {
+        String sql = "DELETE FROM car WHERE id = ?";
+
+        try (Connection conn = dataSource.getConnection();
+        PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+            preparedStatement.setLong(1, id);
+            preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting car by id: " + id, e);
+        }
+    }
+
+    public void delete(Car car) {
+        if (car.getId() != null) {
+            deleteById(car.getId());
+        }
+    }
+
+    public void deleteAll() {
+        String sql = "DELETE FROM car";
+
+        try (Connection conn = dataSource.getConnection();
+        PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+            preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting all cars", e);
+        }
+    }
+
+    public void deleteAllById(Iterable<Long> ids) {
+        String sql = "DELETE FROM car WHERE id = ?";
+
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+                for (var id : ids) {
+                    preparedStatement.setLong(1, id);
+                    preparedStatement.addBatch();
+                }
+                preparedStatement.executeBatch();
+            }
+            conn.commit();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting cars by ids", e);
+        }
     }
 
     private Car mapRowToCar(ResultSet rs) throws SQLException {
