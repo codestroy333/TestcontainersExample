@@ -1,7 +1,10 @@
 package com.booking.testcontainersexampleapp.repository;
 
+import com.booking.testcontainersexampleapp.advice.CarControllerAdvice;
 import com.booking.testcontainersexampleapp.entity.Car;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
@@ -15,6 +18,8 @@ import java.util.Optional;
 @Repository
 @RequiredArgsConstructor
 public class CarRepository {
+
+    private static final Logger logger = LoggerFactory.getLogger(CarRepository.class);
 
     private final DataSource dataSource;
 
@@ -146,6 +151,35 @@ public class CarRepository {
         } catch (SQLException e) {
             throw new RuntimeException("Error deleting cars by ids", e);
         }
+    }
+
+    public List<Car> saveAll(List<Car> cars) {
+        String sql = "INSERT INTO car (name) VALUES (?)";
+
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement preparedStatement = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                for (Car car : cars) {
+                    preparedStatement.setString(1, car.getName());
+                    preparedStatement.addBatch();
+                }
+                preparedStatement.executeBatch();
+
+                try (ResultSet rs = preparedStatement.getGeneratedKeys()) {
+                    int i = 0;
+                    while (rs.next()) {
+                        cars.get(i).setId(rs.getLong(1));
+                        i++;
+                    }
+                }
+            }
+            conn.commit();
+        } catch (SQLException e) {
+            logger.error("Error saving cars: " + sql, e);
+            throw new RuntimeException("Error saving all cars", e);
+        }
+
+        return cars;
     }
 
     private Car mapRowToCar(ResultSet rs) throws SQLException {
